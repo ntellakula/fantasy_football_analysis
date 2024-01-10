@@ -322,7 +322,7 @@ if 'U' in scores_df['outcome'].unique():
     sackos = last_place.iloc[:-1, :]['Manager'].value_counts()
 else:
     championships = standings_df[standings_df['Result'] == 1]['Manager'].value_counts()
-    sacks = last_place['Manager'].value_counts()
+    sackos = last_place['Manager'].value_counts()
 
 results_df = (pd.merge(championships,
                        sackos,

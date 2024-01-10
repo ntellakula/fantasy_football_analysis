@@ -83,7 +83,8 @@ with file1:
 @st.cache_data
 def create_master_data():
     # get all the possible years' worth of data
-    current_year = datetime.date.today().year
+    # current_year = datetime.date.today().year
+    current_year = 2023
     all_years = np.arange(league_start, current_year + 1)
 
     # remove 2018 as its a problem (TO FIX)
