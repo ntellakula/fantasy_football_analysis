@@ -13,6 +13,8 @@ st.header('Season-Level League Data')
 scores_df = ss['data']
 league_start = ss['start_year']
 standings_df = ss['all_standings']
+all_comps_df = ss['comparisons_df']
+all_scores_df = ss['comparisons_score']
 current_year = datetime.date.today().year
 
 # remove 2018 as its a problem (TO FIX)
@@ -30,6 +32,7 @@ season_of_interest = st.selectbox(
 scores_df['year'] = scores_df['year'].astype(int)
 df_source = scores_df[(scores_df['outcome'] != 'U') & (scores_df['game_type'] == 'season') & (scores_df['year'] == season_of_interest)]
 
+num_weeks = df_source['week'].max()
 
 # Create the dataframe
 def weekly_aggregate(i):
@@ -132,6 +135,7 @@ simulated_record = (full_wl.groupby('manager')[['total_wins', 'total_loss', 'tot
 simulated_record['simulated_record'] = simulated_record['total_wins'].astype(str) + '-' + simulated_record['total_loss'].astype(str) + '-' + simulated_record['total_ties'].astype(str)
 simulated_record['s_standing'] = np.arange(simulated_record.shape[0]) + 1
 
+# EDIT: to create totalpoints then sort by wins then points, add ties
 espn_record = (df_source.groupby(['manager', 'outcome'])['points_for']
                         .agg(['sum', 'count'])
                         .reset_index()
@@ -158,7 +162,7 @@ records = records.loc[:, ['simulated_record', 'espn_record', 'difference']].rese
 
 ## Pythagorean Expectation of Wins
 grouped_scores = df_source.loc[:, ['manager', 'points_for', 'points_against']].groupby('manager').sum()
-grouped_scores['expectation'] = (grouped_scores['points_for'] ** 6.2 / (grouped_scores['points_for'] ** 6.2 + grouped_scores['points_against'] ** 6.2)) * 10
+grouped_scores['expectation'] = (grouped_scores['points_for'] ** 6.2 / (grouped_scores['points_for'] ** 6.2 + grouped_scores['points_against'] ** 6.2)) * num_weeks
 grouped_scores.reset_index(inplace = True)
 
 # add in PE into records df
@@ -176,7 +180,7 @@ def highlight_wins(value):
 #%% Results of the Season
 standings_year = standings_df[standings_df['Year'] == season_of_interest]
 standings_year['Year'] = standings_year['Year'].astype(str)
-standings_year.drop('year_end', axis = 1, inplace = True)
+# standings_year.drop('year_end', axis = 1, inplace = True)
 # standings_year['year_end'] = standings_year['year_end'].astype(str)
 
 #%% Output the Season's DataFrames
@@ -190,3 +194,141 @@ with frame1:
 with frame2:
     st.subheader('Season Results')
     st.dataframe(standings_year, hide_index = True, height = len(standings_year) * 35 + 38)
+
+st.divider()
+
+
+#%% Optimal Lineups
+st.subheader('Optimal Lineups')
+
+manager_of_interest = st.selectbox(
+    'Manager',
+    all_scores_df['manager'].unique()
+)
+
+scoring_chart_df = all_scores_df[(all_scores_df['manager'] == manager_of_interest) & (all_scores_df['type'] != 'projected')]
+scoring_chart = (
+    alt.Chart(
+        scoring_chart_df,
+        title = 'Optimal vs. Observed Scoring'
+    ).mark_bar().encode(
+        x = alt.X('week:O').title('Week'),
+        y = alt.Y('score').title('Score'),
+        color = alt.Color(
+            'type',
+            scale = alt.Scale(
+                domain = ['original', 'optimal'],
+                range = ['red', '#ffbfbf']
+            )
+        ).title('Score Type')
+    )
+)
+
+st.altair_chart(scoring_chart, use_container_width = True)
+
+proj_chart_df = all_scores_df[(all_scores_df['manager'] == manager_of_interest) & (all_scores_df['type'] != 'optimal')]
+proj_chart = (
+    alt.Chart(
+        proj_chart_df,
+        title = 'Projected vs. Observed Scoring'
+    ).mark_bar().encode(
+        x = alt.X('type:N').title('Type'),
+        y = alt.Y('score:Q').title('Score'),
+        column = alt.Column('week:O').title('Week'),
+        color = alt.Color(
+            'type:N',
+            scale = alt.Scale(
+                domain = ['original', 'projected'],
+                range = ['red', '#ffbfbf']
+            )
+        ).title('Score Type')
+    )
+)
+
+st.altair_chart(proj_chart)
+
+
+#%% Dataframes
+cols = st.columns(3)
+for i in range(num_weeks):
+    col = cols[i % 3]
+    optimal_df = all_comps_df[(all_comps_df['manager'] == manager_of_interest) & (all_comps_df['week'] == i + 1)].loc[:, ['optimal_positions', 'optimal_players', 'og_lineup_name']]
+    optimal_df.columns = ['Position', 'Optimal', 'Original']
+    col.write(f'Week {i + 1}')
+    col.dataframe(optimal_df, hide_index = True, height = len(optimal_df) * 35 + 38)
+    og_score = all_scores_df[(all_scores_df['manager'] == manager_of_interest) & (all_scores_df['week'] == i + 1) & (all_scores_df['type'] == 'original')]['score'].values[0]
+    op_score = all_scores_df[(all_scores_df['manager'] == manager_of_interest) & (all_scores_df['week'] == i + 1) & (all_scores_df['type'] != 'projected')]['score'].sum()
+    pr_score = all_scores_df[(all_scores_df['manager'] == manager_of_interest) & (all_scores_df['week'] == i + 1) & (all_scores_df['type'] == 'projected')]['score'].values[0]
+    col.write(f'Optimal: {op_score} || Original: {og_score} || Projected: {pr_score}')
+
+
+#%% Lineup Accuracy
+st.divider()
+st.subheader('Lineup Accuracy')
+
+opt_acc1 = (
+    all_scores_df[all_scores_df['type'] != 'projected']
+    .groupby(['manager'], as_index = False)
+    .sum()
+    .drop(['type', 'week'], axis = 1)
+    .rename(columns = {'score': 'Optimal'})
+)
+opt_acc2 = (
+    all_scores_df[all_scores_df['type'] == 'original']
+    .groupby(['manager'], as_index = False)
+    .sum()
+    .rename(columns = {'score': 'Original'})
+    .drop(['type', 'week'], axis = 1)
+)
+opt_acc3 = pd.merge(opt_acc1, opt_acc2, on = ['manager'])
+opt_acc3['pct'] = round(opt_acc3['Original'] / opt_acc3['Optimal'] * 100, 2)
+
+prj_acc1 = (
+    all_scores_df[all_scores_df['type'] == 'projected']
+    .groupby(['manager'], as_index = False)
+    .sum()
+    .drop(['type', 'week'], axis = 1)
+    .rename(columns = {'score': 'Projected'})
+)
+prj_acc2 = (
+    all_scores_df[all_scores_df['type'] == 'original']
+    .groupby(['manager'], as_index = False)
+    .sum()
+    .rename(columns = {'score': 'Original'})
+    .drop(['type', 'week'], axis = 1)
+)
+prj_acc3 = pd.merge(prj_acc1, prj_acc2, on = ['manager'])
+prj_acc3['pct'] = round(prj_acc3['Original'] / prj_acc3['Projected'] * 100, 2)
+
+
+# The Plots
+optimization_base = (
+    alt.Chart(
+        opt_acc3,
+        title = 'Optimal Accuracy'
+    ).encode(
+        x = alt.X('pct').title('Percent Optimal'),
+        y = alt.Y('manager', sort = ('-x')).title('Manager'),
+        text = 'pct'
+    )
+)
+optimization_chart = optimization_base.mark_bar() + optimization_base.mark_text(align = 'right', dx = -4)
+
+projection_base = (
+    alt.Chart(
+        prj_acc3,
+        title = 'Projection Accuracy'
+    ).encode(
+        x = alt.X('pct').title('Percent of Projection'),
+        y = alt.Y('manager', sort = ('-x')).title('Manager'),
+        text = 'pct'
+    )
+)
+projection_chart = projection_base.mark_bar() + projection_base.mark_text(align = 'right', dx = -4)
+
+# Display the Plots
+plot1, plot2 = st.columns(2)
+with plot1:
+    st.altair_chart(optimization_chart)
+with plot2:
+    st.altair_chart(projection_chart)
