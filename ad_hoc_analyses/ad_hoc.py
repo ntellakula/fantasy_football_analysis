@@ -2,73 +2,16 @@
 import datetime
 import numpy as np
 import pandas as pd
-import streamlit as st
 from espn_api.football import League
 from espn_api.football import constant
-from streamlit import session_state as ss
 
-#%% Multipage and Session State Configuration
-st.set_page_config(
-    page_title = 'Fantasy Football Everything',
-    page_icon = '🏈'
-)
+#%% League Parameters
+league_id = 298982
+# year = 2019
+swid = '{D825016D-4C3D-4575-B33C-2C2277B026F0}'
+espn_s2 = 'AEAmlIpZf7Zd7LTyvSFyl9k3zui2t4hQwlVtJM8WK3Lmx33eWNAUq32gR9NK98ZjqXWIEsK3NETxdtcctstCwGu45Mx9QOM9wIeB9KBTALOs8wg512Me2GSTnw3MCQL8bAeTp16w0xkggMxdmDGX9BX6nS2dKDx5OfjEIFLsgnntd3CW%2BmYsMnCywwMpQQZQkigiNNM54cM7OmivIq2kGkZY%2BJEhquYe%2FHnSRhBa9f052nnEmYn0fAzax8RHr3boSL9UASeMp2B8dLubfQd83Bj%2B%2BwBJPpeGyxi36lwJPtMXjg%3D%3D'
 
-ss['data'] = False
-ss['start_year'] = False
-ss['all_standings'] = False
-ss['acqusition'] = False
-ss['draft'] = False
-ss['comparisons_df'] = False
-ss['comparisons_score'] = False
-
-
-#%% Structure
-st.title('All Your Fantasy Needs')
-st.subheader('Enter your League Parameters:')
-
-## User-Input Parameters
-param1, param2 = st.columns(2)
-
-# First Year to Extract all History
-with param1:
-    league_start = st.number_input("What was the inaugural year of your league?",
-                                   step = 1,
-                                   min_value = 2000)
-    ss['start_year'] = league_start
-# League ID
-with param2:
-    league_id = st.number_input("What is your league ID?", step = 1)
-
-# Instructions for Cookies
-st.header('Instructions to Locate the Necessary Cookies:')
-st.markdown(
-    '''
-    1. Open the ESPN league page.
-    2. Right click anywhere and scroll to `Inspect`.
-    3. Navigate to `Network`.
-    4. Refresh the page.
-    5. Under `Name`, there will be a alphanumeric string that begins with your league ID. Click it.
-    6. Scroll to `Request Headers` and locate the field `Cookie:`.
-    7. Copy the entire string and paste it into a text editor.
-    8. Ctrl+F/Cmd+F and search `swid` and `espn_s2`. These are the cookies to paste below.
-    '''
-)
-
-## Cookies
-cookie1, cookie2 = st.columns(2)
-
-# SWID
-with cookie1:
-    swid = st.text_input("What is your SWID cookie?")
-    swid = "'" + swid + "'"
-
-# ESPN S2
-with cookie2:
-    espn_s2 = st.text_input("What is your ESPN S2 cookie?")
-    espn_s2 = "'" + espn_s2 + "'"
-
-
-#%% Additional Helper Functions
+#%% Helper Functions
 def find_optimal_lineup(week, positions, lineup):
     # empty lists to append to
     optimal_positions = []
@@ -225,8 +168,8 @@ def gather_all_optimal(league, all_comps, all_scores):
     return all_comps_df, all_scores_df
 
 
-#%% Create Master Dataframe that will hold all data
-@st.cache_data
+#%% All Data
+league_start = 2011
 def create_master_data():
     # get all the possible years' worth of data
     # current_year = datetime.date.today().year
@@ -382,18 +325,14 @@ def create_master_data():
                               how = 'left',
                               on = ['player', 'year'])
 
-    st.success('Data Imported.')
-
     return scores_df, standings_df, acq_df, draft_board_df, all_comps_df, all_scores_df
 
-# only run the function if all the parameters are entered
-if swid != '' and espn_s2 != '':
-    scores_df, standings_df, acq_df, draft_board_df, all_comps_df, all_scores_df = create_master_data()
+scores_df, standings_df, acq_df, draft_board_df, all_comps_df, all_scores_df = create_master_data()
 
-    # cache objects
-    ss['data'] = scores_df
-    ss['all_standings'] = standings_df
-    ss['acqusition'] = acq_df
-    ss['draft'] = draft_board_df
-    ss['comparisons_df'] = all_comps_df
-    ss['comparisons_score'] = all_scores_df
+#%% Rolling 3 week score
+rolling_df = (
+    scores_df[scores_df['game_type'] != 'postseason']
+    .loc[:, ['manager', 'points_for', 'week', 'year']]
+)
+rolling_df['rolling'] = rolling_df['points_for'].rolling(3).sum()
+rolling_df = rolling_df.dropna().sort_values('points_for', ascending = False)
